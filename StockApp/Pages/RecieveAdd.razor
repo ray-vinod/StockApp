@@ -1,0 +1,213 @@
+﻿@page "/recieve"
+@page "/recieve/{id:guid}"
+@implements IDisposable
+
+<CardComponent Heading="Recieve Item">
+    <EditForm Model="frmModel" OnValidSubmit="AddEdit">
+        <div class="form-row align-items-center">
+            <div class="form-group col-md-3">
+                <label class="control-label">Item's Name</label>
+                <BlazoredTypeahead SearchMethod="SearchAsync"
+                                   @bind-Value="frmModel.SelectedProduct"
+                                   MinimumLength="2"
+                                   EnableDropDown="false"
+                                   placeholder="Search by item's name..." class="form-control">
+                    <SelectedTemplate Context="item">
+                        @(string.Format("{0}", item.Name))
+                    </SelectedTemplate>
+                    <HelpTemplate>
+                        Please enter at least 2 character to perform a search.
+                    </HelpTemplate>
+                    <ResultTemplate Context="item">
+                        @item.Name
+                    </ResultTemplate>
+                </BlazoredTypeahead>
+            </div>
+            <div class="form-group col-md-1">
+                <label for="Qty" class="form-label">Quantity</label>
+                <InputNumber @bind-Value="frmModel.Qty" class="form-control" />
+            </div>
+            <div class="form-group col-md-2">
+                <label for="Qty" class="form-label">Mfg Date</label>
+                <InputDate @bind-Value="frmModel.MfgDate" class="form-control" />
+            </div>
+            <div class="form-group col-md-2">
+                <label for="Qty" class="form-label">Expiry Date</label>
+                <InputDate @bind-Value="frmModel.ExpDate" class="form-control" />
+            </div>
+            <div class="form-group col-md-2">
+                <label for="Qty" class="form-label">Recieve Date</label>
+                <InputDate @bind-Value="frmModel.RecieveDate" class="form-control" />
+            </div>
+            @if (frmModel.Qty != 0)
+            {
+                <div class="col-md-2">
+                    <div class="form-group mt-0 mb-0">
+                        <a class="btn btn-outline-warning pt-1 pb-1 mt-0 mb-1"
+                           @onclick="@(() => frmModel = new RecieveViewModel())">
+                            <span class="oi oi-delete mr-4 ml-4"></span>Reset
+                        </a>
+                        <AddEditButtonComponent ItemGuiId="frmModel.Id" />
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="col-md-2 mt-3">
+                    <AddEditButtonComponent ItemGuiId="frmModel.Id" />
+                </div>
+            }
+            <div class="col-12">
+                <ValidationSummary />
+            </div>
+        </div>
+    </EditForm>
+</CardComponent>
+
+@if (LoadList)
+{
+    <RecieveList IsVisible="false" PageSize="10" EditItem="EditItemHandler" />
+}
+
+
+@code {
+
+    public IList<Product> products;
+    public RecieveViewModel frmModel;
+    [Inject] private AppDbContext AppContext { get; set; }
+    [Inject] private AlertService AlertInfo { get; set; }
+    [Inject] private RecieveIssuePageRefreshService RecieveIssue { get; set; }
+    [Inject] private RecieveListPageRefreshService RecieveListPage { get; set; }
+    [Inject] private NavigationManager PageNavigation { get; set; }
+    public bool LoadList { get; set; } = false;
+
+    [Parameter] public Guid Id { get; set; }
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        frmModel = new RecieveViewModel();
+        await FetchedProduct();
+        RecieveIssue.OnRefreshRequested += PageReload;
+
+        if (Id != Guid.Empty)
+        {
+            await EditItemHandler(Id);
+        }
+
+    }
+
+    private async void PageReload()
+    {
+        await InvokeAsync(async () =>
+        {
+            await FetchedProduct(); //update search text box from productadd page
+            StateHasChanged();
+        });
+    }
+
+
+    public async Task AddEdit()
+    {
+        var rp = new Recieve();
+
+        if (frmModel.Id == Guid.Empty)
+        {
+            rp.ProductId = frmModel.SelectedProduct.Id;
+            rp.MfgDate = frmModel.MfgDate;
+            rp.ExpDate = frmModel.ExpDate;
+            rp.RecieveDate = frmModel.RecieveDate;
+            rp.Qty = frmModel.Qty;
+            rp.RecievedBy = "User Name";
+
+            AppContext.RecieveProducts.Add(rp);
+            await AppContext.SaveChangesAsync();
+
+            AlertInfo.AddMessage(new Alert(frmModel.SelectedProduct.Name + " is inserted!", AlertType.Info), 5);
+
+            AppContext.Entry(rp).State = EntityState.Detached;
+
+            await ManageStock.UpdateStock(rp.ProductId, AppContext);
+
+            RecieveListPage.CallRefreshPage();
+
+            frmModel = new RecieveViewModel();
+        }
+        else
+        {
+            rp = AppContext.RecieveProducts
+                   .AsNoTracking()
+                   .Where(x => x.ProductId == frmModel.SelectedProduct.Id)
+                   .FirstOrDefault();
+
+            rp.Qty = frmModel.Qty;
+            rp.MfgDate = frmModel.MfgDate;
+            rp.ExpDate = frmModel.ExpDate;
+            rp.RecieveDate = frmModel.RecieveDate;
+
+            AppContext.RecieveProducts.Update(rp);
+            await AppContext.SaveChangesAsync();
+
+            AlertInfo.AddMessage(new Alert(frmModel.SelectedProduct.Name + " is updated !", AlertType.Info), 5);
+
+
+            AppContext.Entry(rp).State = EntityState.Detached;
+
+            await ManageStock.UpdateStock(rp.ProductId, AppContext);
+
+            RecieveListPage.CallRefreshPage();
+
+            frmModel = new RecieveViewModel();
+        }
+    }
+
+    private async Task FetchedProduct()
+    {
+        products = await Task.Run(() => AppContext.Products.AsNoTracking()
+                               .OrderBy(x => x.Name)
+                               .ToListAsync());
+
+        LoadList = true;
+    }
+
+
+    public async Task<IEnumerable<Product>> SearchAsync(string searchText)
+    {
+        return await Task.FromResult(products.Where(p => p.Name
+                                             .Contains(searchText
+                                             .ToUpper())));
+    }
+
+    //Edit Recieve List
+    public async Task EditItemHandler(Guid id)
+    {
+        if (id == Guid.Empty)
+        {
+            AlertInfo.AddMessage(new Alert("Your not selected any item !", AlertType.Error), 5);
+            return;
+        }
+
+        frmModel = await AppContext.RecieveProducts.AsNoTracking().Where(x => x.Id == id && x.IsDeleted != true)
+                          .Select(x => new RecieveViewModel
+                          {
+                              Id = x.Id,
+                              SelectedProduct = x.Product,
+                              Qty = x.Qty,
+                              MfgDate = x.MfgDate,
+                              ExpDate = x.ExpDate,
+                              RecieveDate = x.RecieveDate,
+                          }).FirstAsync();
+
+        if (frmModel == null)
+        {
+            AlertInfo.AddMessage(new Alert("Itme not found !", AlertType.Error), 5);
+            return;
+        }
+        PageNavigation.NavigateTo("/recieve", false); //only for the visible url management after the form set
+    }
+
+    public void Dispose()
+    {
+        RecieveIssue.OnRefreshRequested -= PageReload;
+    }
+}

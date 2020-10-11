@@ -1,0 +1,114 @@
+﻿@page "/prefix"
+@page "/prefix/{id:int}"
+
+
+<div class="d-md-flex">
+    <div class="flex-md-column flex-sm-row col-md-5">
+        <CardComponent Heading="Add New Prefix">
+            <EditForm Model="@frmPrefix" OnValidSubmit="AddEdit">
+                <ValidationSummary />
+                <div class="form-group">
+                    <label for="@frmPrefix.Name" class="control-label">Name</label>
+                    <InputText @bind-Value="@frmPrefix.Name" class="form-control oi oi-delete"
+                               placeholder="Item's Name" />
+                </div>
+                <div class="form-group">
+                    <AddEditButtonComponent ItemId="frmPrefix.Id" />
+                    <a class="float-right btn btn-outline-warning" @onclick="@(()=>frmPrefix = new ProductPrefix())">
+                        <span class="oi oi-delete mr-2"></span>Reset
+                    </a>
+                </div>
+            </EditForm>
+        </CardComponent>
+    </div>
+    <div class="flex-md-column flex-sm-row col-md-7">
+        <PrefixList EditItem="EditItemHandler" IsVisible="false" PageSize="15" />
+    </div>
+</div>
+
+@code{
+
+    [Inject] AppDbContext AppContext { get; set; }
+    [Inject] AlertService AlertInfo { get; set; }
+    [Inject] PageRefreshService PageRefresh { get; set; }
+    [Inject] NavigationManager PageNavigation { get; set; }
+
+    //Parameter members
+    [Parameter] public int Id { get; set; }
+
+    private ProductPrefix frmPrefix;
+
+
+    protected override void OnInitialized()
+    {
+        frmPrefix = new ProductPrefix();
+
+        //To check EditEventhandler on parameter
+        if (Id != 0)
+        {
+            EditItemHandler(Id);
+        }
+    }
+
+    //Create New and Edit Item
+    private async Task AddEdit()
+    {
+        if (frmPrefix.Name == null)
+        {
+            AlertInfo.AddMessage(new Alert("The name field is epmty !", AlertType.Error), 5);
+            return;
+        }
+
+        if (frmPrefix.Id == 0)
+        {
+            //Prevent duplication
+            if (AppContext.ProductsPrefix.Where(x => x.Name == frmPrefix.Name).Count() > 0)
+            {
+                AlertInfo.AddMessage(new Alert("This is already exist!", AlertType.Warning), 5);
+                return;
+            }
+
+            //Create new item
+            frmPrefix.Name = frmPrefix.Name.ToUpper();
+            AppContext.ProductsPrefix.Add(frmPrefix);
+            AlertInfo.AddMessage(new Alert(frmPrefix.Name.ToString() + " is added !", AlertType.Info), 5);
+        }
+        else
+        {
+            //Update Record
+            frmPrefix.Name = frmPrefix.Name.ToUpper();
+            AppContext.ProductsPrefix.Update(frmPrefix);
+            AlertInfo.AddMessage(new Alert(frmPrefix.Name.ToString() + " is updated !", AlertType.Info), 5);
+        }
+        //Db Change commit
+        await AppContext.SaveChangesAsync();
+
+        //Refresh prefix list component
+        PageRefresh.CallRefreshPage();
+
+        //Form reset
+        frmPrefix = new ProductPrefix();
+    }
+
+    //EdintEventCallback ActionMenthod
+    public void EditItemHandler(int id)
+    {
+        if (id != 0)
+        {
+            frmPrefix = AppContext.ProductsPrefix.Where(x => x.Id == id).FirstOrDefault();
+            if (frmPrefix == null)
+            {
+                AlertInfo.AddMessage(new Alert(frmPrefix.Name + "Product Prefix is not foucnd !", AlertType.Error), 5);
+                return;
+            }
+            PageNavigation.NavigateTo("/prefix", false);
+        }
+        else
+        {
+            AlertInfo.AddMessage(new Alert(frmPrefix.Name + "Record not foucnd !", AlertType.Error), 5);
+            PageNavigation.NavigateTo("/prefixlist", false);
+        }
+
+    }
+}
+

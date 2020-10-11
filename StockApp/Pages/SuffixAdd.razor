@@ -1,0 +1,116 @@
+﻿@page "/suffix"
+@page "/suffix/{id:int}"
+
+<div class="d-md-flex">
+    <div class="flex-md-column flex-sm-row col-md-5">
+        <CardComponent Heading="Add New Sufix">
+            <EditForm Model="@frmSuffix" OnValidSubmit="AddEdit">
+                <ValidationSummary />
+                <div class="form-group">
+                    <label for="@frmSuffix.Name" class="control-label">Name</label>
+                    <InputText @bind-Value="@frmSuffix.Name" class="form-control oi oi-delete"
+                               placeholder="Item's name" />
+
+                </div>
+                <div class="form-group">
+                    <AddEditButtonComponent ItemId="frmSuffix.Id" />
+                    <a class="float-right btn btn-outline-warning" @onclick="@(()=>frmSuffix = new ProductSuffix())">
+                        <span class="oi oi-delete mr-2"></span>Reset
+                    </a>
+                </div>
+            </EditForm>
+        </CardComponent>
+    </div>
+    <div class="flex-md-column flex-sm-row col-md-7">
+        <SuffixList EditItem="EditItemHandler" IsVisible="false" PageSize="15" />
+    </div>
+</div>
+
+@code{
+
+    [Inject] AppDbContext AppContext { get; set; }
+    [Inject] AlertService AlertInfo { get; set; }
+    [Inject] PageRefreshService PageRefresh { get; set; }
+    [Inject] NavigationManager PageNavigation { get; set; }
+
+    //Parameter members
+    [Parameter] public int Id { get; set; }
+
+    private ProductSuffix frmSuffix;
+
+
+    protected override void OnInitialized()
+    {
+        frmSuffix = new ProductSuffix();
+
+        //To check EditEventhandler on parameter
+        if (Id != 0)
+        {
+            EditItemHandler(Id);
+        }
+    }
+
+    //Create New and Edit Item
+    private async Task AddEdit()
+    {
+        if (frmSuffix.Name == null)
+        {
+            AlertInfo.AddMessage(new Alert("The name field is epmty !", AlertType.Error), 5);
+            return;
+        }
+
+        if (frmSuffix.Id == 0)
+        {
+            //Prevent duplication
+            if (AppContext.ProductsPrefix.Where(x => x.Name == frmSuffix.Name).Count() > 0)
+            {
+                AlertInfo.AddMessage(new Alert("This is already exist!", AlertType.Warning), 5);
+                return;
+            }
+
+            //Create new item
+            frmSuffix.Name = frmSuffix.Name.ToUpper();
+            AppContext.ProductsSuffix.Add(frmSuffix);
+            AlertInfo.AddMessage(new Alert(frmSuffix.Name.ToString() + " is added !", AlertType.Info), 5);
+        }
+        else
+        {
+            //Update Record
+            frmSuffix.Name = frmSuffix.Name.ToUpper();
+            AppContext.ProductsSuffix.Update(frmSuffix);
+            AlertInfo.AddMessage(new Alert(frmSuffix.Name.ToString() + " is updated !", AlertType.Info), 5);
+        }
+        //Db Change commit
+        await AppContext.SaveChangesAsync();
+
+        //Refresh prefix list component
+        PageRefresh.CallRefreshPage();
+
+        //Form reset
+        frmSuffix = new ProductSuffix();
+    }
+
+    //EdintEventCallback ActionMenthod
+    public void EditItemHandler(int id)
+    {
+        if (id != 0)
+        {
+            frmSuffix = AppContext.ProductsSuffix.Where(x => x.Id == id).FirstOrDefault();
+            if (frmSuffix == null)
+            {
+                AlertInfo.AddMessage(new Alert(frmSuffix.Name + "Product Sufix is not foucnd !", AlertType.Error), 5);
+                return;
+            }
+            PageNavigation.NavigateTo("/suffix", false);
+        }
+        else
+        {
+            AlertInfo.AddMessage(new Alert(frmSuffix.Name + "Record not foucnd !", AlertType.Error), 5);
+            //NavigationManager.NavigateTo("/suffixlist", false);
+            return;
+        }
+
+    }
+}
+
+

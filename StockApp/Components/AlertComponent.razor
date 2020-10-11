@@ -1,0 +1,40 @@
+﻿@implements IDisposable
+
+<div class="alert-service">
+    @for (int c = 0; c < alertService.Messages.Count; c++)
+    {
+        <span class="alert @GetAlertClass(alertService.Messages[c])">
+            @alertService.Messages[c].Message
+        </span>
+    }
+</div>
+
+@code {
+
+    [Inject]
+    public AlertService alertService { get; set; }
+
+
+    protected override void OnInitialized()
+    {
+        alertService.OnRefreshRequested += RefreshRequestedHandler;
+    }
+
+    protected async void RefreshRequestedHandler()
+    {
+        await InvokeAsync(() =>
+        {
+            StateHasChanged();
+        });
+    }
+
+    public string GetAlertClass(Alert alert)
+    {
+        return string.Format("alert-{0}", alert.AlertType.ToString().ToLower());
+    }
+
+    public void Dispose()
+    {
+        alertService.OnRefreshRequested -= RefreshRequestedHandler;
+    }
+}

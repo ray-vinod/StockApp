@@ -1,0 +1,9 @@
+﻿<input type="text" class="form-control" placeholder="Search by @ByName"
+       @oninput="OnSearchTexChanged" />
+
+@code {
+
+    [Parameter] public string ByName { get; set; }
+
+    [Parameter] public EventCallback<ChangeEventArgs> OnSearchTexChanged { get; set; }
+}

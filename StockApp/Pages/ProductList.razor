@@ -1,0 +1,183 @@
+﻿@page "/productlist"
+@implements IDisposable
+
+<CardComponent Heading="List of Product" BgClass="@((IsVisible==false)? "lightinfo":"info")">
+    <div>
+        @if (IsVisible == false)
+        {
+            <a href="/productlist" class="btn btn-outline-secondary">
+                <span class="oi oi-arrow-circle-left mr-2 mb-2"></span>Back To List
+            </a>
+        }
+        <div class="col-md-4 mb-2 float-md-right">
+            <SimpleSearchBox ByName="product's name" OnSearchTexChanged="OnProductSearchTexChanged" />
+        </div>
+    </div>
+    <TableComponent Items="products" IsLoading="IsLoading" IsVisible="IsVisible"
+                    NavigationString="/product">
+        <TableHeader>
+            <th>Name</th>
+            <th>Group</th>
+            <th>Action</th>
+        </TableHeader>
+        <RowTemplate>
+            @foreach (var product in products)
+            {
+                <tr>
+                    <td>
+                        @((product.ProductPrefix.Name !="NO")? product.ProductPrefix.Name:"")
+                        @product.Name @product.ProductSufix.Name
+                    </td>
+                    <td>@product.Group</td>
+                    <td>
+                        @if (IsVisible != true)
+                        {
+                            <a @onclick="@(()=> EditItem.InvokeAsync(product.Id))" style="cursor:pointer;">Edit</a>
+                        }
+                        else
+                        {
+                            <a href="/product/@product.Id" style="cursor:pointer;text-decoration:none;color:black;">Edit</a>
+                        }
+                        |
+                        <a @onclick="@(()=> Delete(product.Id))" style="cursor:pointer;">Delete</a>
+                    </td>
+                </tr>
+            }
+        </RowTemplate>
+    </TableComponent>
+    <PaginationComponent TotalPage="TotalPages" CurrentPage="CurrentPage"
+                         Radius="2" SelectedPage="SelectedPage"></PaginationComponent>
+</CardComponent>
+
+
+
+@code{
+
+    [Inject] AppDbContext MyContext { get; set; }
+    [Inject] AlertService AlertInfo { get; set; }
+    [Inject] PageRefreshService PageRefresh { get; set; }
+    [Inject] RecieveIssuePageRefreshService RecieveIssue { get; set; }
+
+    //Paginating Members
+    public int PageNumber { get; set; } = 1;
+    public int CurrentPage { get; set; } = 1;
+    public int TotalPages { get; set; }
+
+    //Parameter members
+    [Parameter] public bool IsVisible { get; set; } = true;
+    [Parameter] public int PageSize { get; set; } = 15;
+    [Parameter] public EventCallback<Guid> EditItem { get; set; }
+
+    public bool IsLoading { get; set; } = true;
+    public List<Product> products;
+
+
+
+    protected override void OnInitialized()
+    {
+        products = new List<Product>();
+        PageRefresh.OnRefreshRequested += PageReload;
+
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Load(PageNumber);
+            StateHasChanged();
+        }
+    }
+
+    private async Task Load(int page)
+    {
+        //Spin Loader Enable
+        if (IsLoading)
+        {
+            await Task.Delay(1000);
+            IsLoading = false;
+        }
+
+        var model = await Task.Run(() =>
+                                        from pf in MyContext.Products
+                                        .Include(x => x.ProductPrefix)
+                                        .Include(x => x.ProductSufix)
+                                        .OrderBy(x => x.Group)
+                                        .ThenBy(x => x.Name)
+                                        select pf);
+
+        products = await PaginatedList<Product>.CreateAsync(model, page, PageSize);
+        TotalPages = PaginatedList<Product>.TotalPage();
+
+        if (products.Count == 0 && CurrentPage != 1)
+        {
+            CurrentPage -= 1;
+            PageRefresh.CallRefreshPage();
+        }
+    }
+
+    public async Task Delete(Guid id)
+    {
+        if (id == Guid.Empty)
+        {
+            AlertInfo.AddMessage(new Alert("Your are not selected any item !", AlertType.Error), 5);
+            return;
+        }
+
+        var product = await Task.Run(() => MyContext.Products.First(x => x.Id == id));
+
+        if (product == null)
+        {
+            AlertInfo.AddMessage(new Alert("Record not found !", AlertType.Error), 5);
+            return;
+        }
+
+        //Removing product
+        MyContext.Products.Remove(product);
+        await MyContext.SaveChangesAsync();
+
+        //Refresh product list
+        PageRefresh.CallRefreshPage();
+        RecieveIssue.CallRefreshPage();
+
+        AlertInfo.AddMessage(new Alert("Item is deleted !", AlertType.Info), 5);
+    }
+
+    public async Task SelectedPage(int page)
+    {
+        CurrentPage = page;
+        await Load(CurrentPage);
+    }
+
+    private async void PageReload()
+    {
+        await Load(CurrentPage);
+
+        await InvokeAsync(() =>
+        {
+            StateHasChanged();
+        });
+    }
+
+
+
+    //Search product
+    public async Task OnProductSearchTexChanged(ChangeEventArgs e)
+    {
+        string searchText = e.Value.ToString();
+        var model = from p in MyContext.Products
+                    .Where(x => x.Name.Contains(searchText.ToUpper()))
+                    .OrderBy(x => x.Group)
+                    .ThenBy(x => x.Name)
+                    select p;
+
+        products = await PaginatedList<Product>.CreateAsync(model, PageNumber, PageSize);
+        TotalPages = PaginatedList<Product>.TotalPage();
+    }
+
+
+    public void Dispose()
+    {
+        PageRefresh.OnRefreshRequested -= PageReload;
+    }
+}

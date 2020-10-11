@@ -1,0 +1,80 @@
+﻿@typeparam TItem
+@inject PageRefreshService PageRefreshService
+@implements IDisposable
+
+@if (IsVisible)
+{
+    <div>
+        <a href="@NavigationString" class="btn btn-outline-primary">
+            <span class="oi oi-plus mr-2 mb-2"></span>New Entery
+        </a>
+    </div>
+}
+
+@if (IsLoading)
+{
+    <Chase Center="true" Color="#17a2b8" />
+}
+else if (Items.Count == 0)
+{
+    if (NoRecord != null)
+    {
+        @NoRecord
+    }
+    else
+    {
+        <h3 class="text-warning text-center">No Record Found.</h3>
+    }
+}
+else
+{
+    <table class="table table-striped @TableCalss.ToLower()">
+        <thead>
+            <tr>
+                @TableHeader
+            </tr>
+        </thead>
+        <tbody>
+            @RowTemplate
+        </tbody>
+    </table>
+}
+
+@code {
+
+    [Parameter] public IReadOnlyList<TItem> Items { get; set; }
+
+    [Parameter] public RenderFragment TableHeader { get; set; }
+
+    [Parameter] public RenderFragment RowTemplate { get; set; }
+
+    [Parameter] public RenderFragment NoRecord { get; set; }
+
+    [Parameter] public bool IsVisible { get; set; }
+
+    [Parameter] public bool IsLoading { get; set; }
+
+    [Parameter] public string TableCalss { get; set; } = string.Empty;
+
+    [Parameter] public string NavigationString { get; set; }
+
+
+    protected override void OnInitialized()
+    {
+        PageRefreshService.OnRefreshRequested += RefreshHandler;
+    }
+
+    private async void RefreshHandler()
+    {
+        await InvokeAsync(() =>
+        {
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        PageRefreshService.OnRefreshRequested -= RefreshHandler;
+    }
+
+}

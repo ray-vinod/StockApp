@@ -1,0 +1,262 @@
+﻿@page "/issuelist"
+@*@attribute [Authorize(Roles = "Root")]*@
+
+<CardComponent Heading="List of all issued Items" BgClass="@((IsVisible==false)? "lightinfo":"info")">
+    <div>
+        @if (IsVisible == false)
+        {
+            <a href="/issuelist" class="btn btn-outline-secondary">
+                <span class="oi oi-arrow-circle-left mr-2 mb-2"></span>Back To List
+            </a>
+        }
+        <div class="col-md-4 mb-2 float-md-right">
+            <SimpleSearchBox ByName="product's name" OnSearchTexChanged="OnProductSearchTexChanged" />
+        </div>
+    </div>
+    <TableComponent Items="issueList" IsLoading="IsLoading" IsVisible="IsVisible"
+                    NavigationString="/issues">
+        <TableHeader>
+            <td>Date</td>
+            <th>Item</th>
+            <th>Qty</th>
+            <th>Remarks</th>
+            <th>Action</th>
+        </TableHeader>
+        <RowTemplate>
+            @foreach (var issue in issueList)
+            {
+                <tr>
+                    <td>@issue.IssueDate.ToShortDateString()</td>
+                    <td>@issue.ProductName</td>
+                    <td>@issue.Qty</td>
+                    <td>@issue.Remarks</td>
+                    <td>
+                        @if (IsVisible != true)
+                        {
+                            <a @onclick="@(()=> EditItem.InvokeAsync(issue.Id))" style="cursor:pointer;">Edit</a>
+                        }
+                        else
+                        {
+                            <a href="/recieve/@issue.Id" style="cursor:pointer;text-decoration:none;color:black;">Edit</a>
+                        }
+                        |
+                        <a @onclick="@(()=> Delete(issue.Id))" style="cursor:pointer;">Delete</a>
+                    </td>
+                </tr>
+            }
+        </RowTemplate>
+    </TableComponent>
+    <PaginationComponent TotalPage="TotalPages" CurrentPage="CurrentPage"
+                         Radius="2" SelectedPage="SelectedPage"></PaginationComponent>
+</CardComponent>
+
+@code{
+
+    private List<IssueViewModel> issueList = new List<IssueViewModel>();
+    private int PageNumber { get; set; } = 1;
+    private int CurrentPage { get; set; } = 1;
+    private int TotalPages { get; set; }
+    private bool IsLoading { get; set; } = true;
+
+    [Parameter] public int PageSize { get; set; } = 15;
+    [Parameter] public bool IsVisible { get; set; } = true;
+    [Parameter] public EventCallback<Guid> EditItem { get; set; }
+
+    [Inject] private AlertService AlertService { get; set; }
+    [Inject] private IssueListPageRefreshService IssueListRefresh { get; set; }
+    [Inject] private AppDbContext AppContext { get; set; }
+
+
+    protected override void OnInitialized()
+    {
+        IssueListRefresh.OnRefreshRequested += PageReload;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Load(PageNumber);
+            StateHasChanged();
+        }
+    }
+
+    public async Task Load(int page, int delayTime = 1000)
+    {
+        if (IsLoading)
+        {
+            await Task.Delay(delayTime);
+            IsLoading = false;
+        }
+
+        var task = Task.Run(() => from ip in AppContext.IssueProducts.AsNoTracking()
+                                             .Where(x => x.IsDeleted != true)
+                                             .Include(x => x.Product)
+                                             .AsNoTracking()
+                                             .OrderBy(x => x.IssueDate)
+                                                .ThenBy(x => x.Product.Name)
+                                  select new IssueViewModel
+                                  {
+                                      Id = ip.Id,
+                                      PId = ip.ProductId,
+                                      ProductName = ((ip.Product.ProductPrefix.Name != "NO") ? ip.Product.ProductPrefix.Name : "")
+                                                      + " " + ip.Product.Name,
+                                      IssueDate = ip.IssueDate,
+                                      Qty = ip.Qty,
+                                      Remarks = ip.Remarks
+                                  });
+
+        Task.WaitAll(task);
+        var awaiter = task.GetAwaiter();
+        var result = awaiter.GetResult();
+
+        issueList = await PaginatedList<IssueViewModel>.CreateAsync(result, page, PageSize);
+        TotalPages = PaginatedList<IssueViewModel>.TotalPage();
+
+        if (issueList.Count == 0 && CurrentPage != 1)
+        {
+            CurrentPage -= 1;
+            IssueListRefresh.CallRefreshPage();
+        }
+
+    }
+
+    protected async void PageReload()
+    {
+        await Load(CurrentPage);
+        await InvokeAsync(() =>
+        {
+            StateHasChanged();
+        });
+    }
+
+    public async Task Delete(Guid id)
+    {
+
+        if (id == Guid.Empty)
+        {
+            AlertService.AddMessage(new Alert("Your are not selected any item !", AlertType.Error), 5);
+            return;
+        }
+
+        var model = await Task.Run(() => AppContext.IssueProducts
+                              .AsNoTracking()
+                              .FirstAsync(x => x.Id == id && x.IsDeleted != true));
+
+
+        AppContext.Entry(model).State = EntityState.Detached;
+
+        if (model == null)
+        {
+            AlertService.AddMessage(new Alert("Record not found !", AlertType.Error), 5);
+            return;
+        }
+
+        //Db.IssueProduct.Remove(model);//Parmanent Deletion form db
+        model.IsDeleted = true;
+        AppContext.IssueProducts.Update(model);
+        await AppContext.SaveChangesAsync();
+
+        await IssuedInSlice(model.Qty);
+
+        await ManageStock.UpdateStock(model.ProductId, AppContext);
+
+        AlertService.AddMessage(new Alert("Item is deleted !", AlertType.Info), 5);
+
+        IssueListRefresh.CallRefreshPage();
+
+    }
+
+    private async Task SelectedPage(int page)
+    {
+        CurrentPage = page;
+        await Load(page);
+    }
+
+    private async Task OnProductSearchTexChanged(ChangeEventArgs e)
+    {
+        string searchText = e.Value.ToString().ToUpper();
+        var model = await Task.Run(() => from ip in AppContext.IssueProducts.AsNoTracking().Where(x => x.IsDeleted == false)
+                                        .Where(x => x.IsDeleted != true && x.Product.Name.Contains(searchText))
+                                        .Include(x => x.Product)
+                                        .AsNoTracking()
+                                        .OrderBy(x => x.IssueDate)
+                                        .ThenBy(x => x.Product.Name)
+                                         select new IssueViewModel
+                                         {
+                                             Id = ip.Id,
+                                             ProductName = ((ip.Product.ProductPrefix.Name != "NO") ? ip.Product.ProductPrefix.Name : "")
+                                                             + " " + ip.Product.Name,
+                                             IssueDate = ip.IssueDate,
+                                             Qty = ip.Qty,
+                                             Remarks = ip.Remarks
+                                         });
+
+        issueList = await PaginatedList<IssueViewModel>.CreateAsync(model, PageNumber, PageSize);
+        TotalPages = PaginatedList<IssueViewModel>.TotalPage();
+
+        if (issueList.Count == 0 && CurrentPage != 1)
+        {
+            CurrentPage -= 1;
+            IssueListRefresh.CallRefreshPage();
+        }
+
+    }
+
+    //LIFO on delete operation of issued item
+    private async Task IssuedInSlice(int toBeDeleted)
+    {
+
+        int qty = toBeDeleted;
+        List<Recieve> recieves = new List<Recieve>();
+
+        var earlyExpiryRecieveItems = await AppContext.RecieveProducts
+                              .Where(x => x.IsDeleted == false)
+                              .OrderByDescending(x => x.ExpDate)
+                              .ToListAsync();
+
+        foreach (var rItem in earlyExpiryRecieveItems)
+        {
+
+            if (qty == 0)
+            {
+                break;
+            }
+
+            int availabel=0;
+
+            if (rItem.UpdatedQty==0 && rItem.IsUsed ==true)
+            {
+                availabel = rItem.Qty;
+            }
+            else
+            {
+                availabel = rItem.UpdatedQty;
+            }
+
+            if (qty >= availabel)
+            {
+                rItem.UpdatedQty = 0;
+                rItem.IsUsed = false;
+                qty -= availabel;
+            }
+            else
+            {
+                rItem.UpdatedQty -= qty;
+                rItem.IsUsed = false;
+            }
+
+            recieves.Add(rItem);
+        }
+
+        AppContext.RecieveProducts.UpdateRange(recieves);
+        await AppContext.SaveChangesAsync();
+    }
+
+    public void Dispose()
+    {
+        IssueListRefresh.OnRefreshRequested -= PageReload;
+    }
+
+
+}

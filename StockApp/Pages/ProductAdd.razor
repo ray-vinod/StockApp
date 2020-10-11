@@ -1,0 +1,184 @@
+﻿@page "/product"
+@page "/product/{id:guid}"
+@implements IDisposable
+
+<CardComponent Heading="Add New Product">
+    <EditForm Model="@frmProduct" OnValidSubmit="AddEdit">
+        <div class="form-row align-items-center">
+            <div class="col-md-2">
+                <div class="form-group">
+                    <label for="@frmProduct.ProductPrefixId" class="control-label">Item's Type</label>
+                    <CustomInputSelect @bind-Value="frmProduct.ProductPrefixId" class="form-control">
+                        <option value="" selected:selected>Please Select</option>
+                        @foreach (var prefix in MyContext.ProductsPrefix.OrderBy(x => x.Name).ToList())
+                        {
+                            <option value="@prefix.Id">@prefix.Name</option>
+                        }
+                    </CustomInputSelect>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-group">
+                    <label class="control-label">Item's Name</label>
+                    <InputText @bind-Value="frmProduct.Name" class="form-control"
+                               placeholder="Product's Name" />
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="form-group">
+                    <label for="@frmProduct.ProductSuffixId" class="control-label">Item's Type</label>
+                    <CustomInputSelect @bind-Value="frmProduct.ProductSuffixId" class="form-control">
+                        <option value="" selected:selected>Please Select</option>
+                        @foreach (var sufix in MyContext.ProductsSuffix.OrderBy(x => x.Name).ToList())
+                        {
+                            <option value="@sufix.Id">@sufix.Name</option>
+                        }
+                    </CustomInputSelect>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <div class="form-group">
+                    <label for="@frmProduct.Group" class="control-label">Item's Type</label>
+                    <CustomInputSelect @bind-Value="frmProduct.Group" class="form-control">
+                        @foreach (var item in Enum.GetValues(typeof(Group)))
+                        {
+                            <option value="@item">@item</option>
+                        }
+                    </CustomInputSelect>
+                </div>
+            </div>
+            @if (frmProduct.Name != null)
+            {
+                <div class="col-md-2">
+                    <div class="form-group mt-0 mb-0">
+                        <a class="btn btn-outline-warning pt-1 pb-1 mt-0 mb-1"
+                           @onclick="@(() => frmProduct = new Product())">
+                            <span class="oi oi-delete mr-4 ml-4"></span>Reset
+                        </a>
+                        <AddEditButtonComponent ItemGuiId="frmProduct.Id" />
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="col-md-2 mt-3">
+                    <AddEditButtonComponent ItemGuiId="frmProduct.Id" />
+                </div>
+            }
+            <div class="col-12">
+                <ValidationSummary />
+            </div>
+        </div>
+    </EditForm>
+</CardComponent>
+
+<ProductList EditItem="EditItemHandler" IsVisible="false" PageSize="10" />
+
+
+
+@code{
+
+    [Inject] AppDbContext MyContext { get; set; }
+    [Inject] AlertService AlertInfo { get; set; }
+    [Inject] PageRefreshService PageRefresh { get; set; }
+    [Inject] RecieveIssuePageRefreshService RecieveIssue { get; set; }
+    [Inject] NavigationManager PageNavigation { get; set; }
+    public bool LoadList { get; set; } = false;
+
+    public Product frmProduct;
+    [Parameter] public Guid Id { get; set; }
+
+
+
+    protected override void OnInitialized()
+    {
+        PageRefresh.OnRefreshRequested += PageReload;
+
+        frmProduct = new Product();
+
+        //EditItmeHandler call from item list page
+        if (Id != Guid.Empty)
+        {
+            EditItemHandler(Id);
+        }
+    }
+
+    private async void PageReload()
+    {
+        await InvokeAsync(() =>
+        {
+            StateHasChanged();
+        });
+    }
+
+    //Add and Edit
+    public void AddEdit()
+    {
+        if (frmProduct.Id == Guid.Empty)
+        {
+            //Prevent duplication
+            if (MyContext.Products.Where(x => x.Name == frmProduct.Name
+                    .ToUpper()).Count() != 0)
+            {
+                AlertInfo.AddMessage(new Alert("The Product is already exist!", AlertType.Warning), 5);
+                return;
+            }
+
+            //add product
+            frmProduct.Name = frmProduct.Name.ToUpper();
+            MyContext.Products.Add(frmProduct);
+            MyContext.SaveChanges();
+
+            AlertInfo.AddMessage(new Alert(frmProduct.Name + " is inserted !", AlertType.Info), 5);
+
+            //Page list refresh
+            PageRefresh.CallRefreshPage();
+            RecieveIssue.CallRefreshPage();
+            frmProduct = new Product();
+        }
+        else
+        {
+            //Prevent buplication
+            if (MyContext.Products.Where(x => x.Name == frmProduct.Name.ToUpper()
+                    && x.Id != frmProduct.Id).Count() != 0)
+            {
+                AlertInfo.AddMessage(new Alert("The Product is already exist!", AlertType.Warning), 5);
+                return;
+            }
+
+            //Update product
+            frmProduct.Name = frmProduct.Name.ToUpper();
+            MyContext.Products.Update(frmProduct);
+            MyContext.SaveChanges();
+
+            AlertInfo.AddMessage(new Alert(frmProduct.Name + " is updated !", AlertType.Info), 5);
+
+            //Page list refresh
+            PageRefresh.CallRefreshPage();
+            RecieveIssue.CallRefreshPage();
+
+            frmProduct = new Product();
+        }
+    }
+
+    //Edit
+    public void EditItemHandler(Guid id)
+    {
+        if (id != Guid.Empty)
+        {
+            frmProduct = MyContext.Products.Where(x => x.Id == id).FirstOrDefault();
+            if (frmProduct == null)
+            {
+                AlertInfo.AddMessage(new Alert(frmProduct.Name + "Product is not foucnd !", AlertType.Error), 5);
+                return;
+            }
+            PageNavigation.NavigateTo("/product", false);
+        }
+    }
+
+    public void Dispose()
+    {
+        PageRefresh.OnRefreshRequested -= PageReload;
+    }
+
+}

@@ -1,0 +1,162 @@
+﻿@page "/suffixlist"
+@implements IDisposable
+
+<CardComponent Heading="List of Product Sufix" BgClass="@((IsVisible==false)? "lightinfo":"info")">
+    <div>
+        <div class="col-md-5 mb-2 float-md-right">
+            <SimpleSearchBox ByName="sufix's name" OnSearchTexChanged="OnSearchTexChanged" />
+        </div>
+
+        @if (IsVisible == false)
+        {
+            <a href="/suffixlist" class="btn btn-outline-secondary">
+                <span class="oi oi-arrow-circle-left mr-2 mb-2"></span>Back To List
+            </a>
+        }
+    </div>
+    <TableComponent Items="suffixes" IsLoading="IsLoading" IsVisible="IsVisible"
+                    NavigationString="/suffix">
+
+        <TableHeader>
+            <th width="70%">Name</th>
+            <th width="30%">Action</th>
+        </TableHeader>
+
+        <RowTemplate>
+            @foreach (var suffix in suffixes)
+            {
+                <tr>
+                    <td>@suffix.Name</td>
+                    <td>
+                        @if (IsVisible != true)
+                        {
+                            <a @onclick="@(()=> EditItem.InvokeAsync(suffix.Id))" style="cursor:pointer;">Edit</a>
+                        }
+                        else
+                        {
+                            <a href="/suffix/@suffix.Id" style="cursor:pointer;text-decoration:none;color:black;">Edit</a>
+                        }
+                        |
+                        <a @onclick="@(()=> Delete(suffix.Id))" style="cursor:pointer;">Delete</a>
+                    </td>
+                </tr>
+            }
+        </RowTemplate>
+    </TableComponent>
+
+    <PaginationComponent TotalPage="TotalPages" CurrentPage="CurrentPage"
+                         Radius="2" SelectedPage="SelectedPage">
+    </PaginationComponent>
+
+</CardComponent>
+
+
+@code{
+
+    [Inject] AppDbContext AppContext { get; set; }
+    [Inject] AlertService AlertInfo { get; set; }
+    [Inject] PageRefreshService PageRefresh { get; set; }
+
+    public List<ProductSuffix> suffixes;
+
+    //Pagination properties
+    public int PageNumber { get; set; } = 1;
+    public int CurrentPage { get; set; } = 1;
+    public int TotalPages { get; set; }
+    public bool IsLoading { get; set; } = true;
+
+    [Parameter] public int PageSize { get; set; } = 15;
+    [Parameter] public bool IsVisible { get; set; } = true;
+    [Parameter] public EventCallback<int> EditItem { get; set; }
+
+
+    protected override void OnInitialized()
+    {
+        suffixes = new List<ProductSuffix>();
+        PageRefresh.OnRefreshRequested += PageReload;
+    }
+
+    private async void PageReload()
+    {
+        await Load(CurrentPage);
+        await InvokeAsync(() =>
+        {
+            StateHasChanged();
+        });
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Load(PageNumber);
+            StateHasChanged();
+        }
+    }
+
+    private async Task Load(int page)
+    {
+        if (IsLoading)
+        {
+            await Task.Delay(1000);
+            IsLoading = false;
+        }
+
+        var model = await Task.Run(() =>
+                                        from pf in AppContext.ProductsSuffix
+                                            .OrderBy(x => x.Name)
+                                        select pf);
+        suffixes = await PaginatedList<ProductSuffix>.CreateAsync(model, page, PageSize);
+        TotalPages = PaginatedList<ProductSuffix>.TotalPage();
+    }
+
+
+
+    public async Task SelectedPage(int page)
+    {
+        CurrentPage = page;
+        await Load(page);
+    }
+
+    public async Task Delete(int id)
+    {
+        if (id == 0)
+        {
+            AlertInfo.AddMessage(new Alert("You are not selected any item !", AlertType.Warning), 5);
+            return;
+        }
+
+        var suffix = await Task.Run(() => AppContext.ProductsSuffix.First(x => x.Id == id));
+        if (suffix == null)
+        {
+            AlertInfo.AddMessage(new Alert("Record not found !", AlertType.Info), 5);
+            return;
+        }
+        else
+        {
+            AppContext.ProductsSuffix.Remove(suffix);
+            await AppContext.SaveChangesAsync();
+            AlertInfo.AddMessage(new Alert(suffix.Name.ToString() + " is deleted !", AlertType.Info), 5);
+        }
+
+        PageRefresh.CallRefreshPage();
+    }
+
+    //Search Function
+    public async Task OnSearchTexChanged(ChangeEventArgs e)
+    {
+        string searchText = e.Value.ToString();
+        var model = from p in AppContext.ProductsSuffix
+                        .Where(x => x.Name.Contains(searchText.ToUpper()))
+                        .OrderBy(x => x.Name)
+                    select p;
+
+        suffixes = await PaginatedList<ProductSuffix>.CreateAsync(model, PageNumber, PageSize);
+        TotalPages = PaginatedList<ProductSuffix>.TotalPage();
+    }
+
+    public void Dispose()
+    {
+        PageRefresh.OnRefreshRequested -= PageReload;
+    }
+}

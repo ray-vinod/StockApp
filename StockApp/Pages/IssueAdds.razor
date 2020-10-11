@@ -1,0 +1,295 @@
+﻿@page "/issues"
+@page "/issues/{id:guid}"
+@implements IDisposable
+
+<CardComponent Heading="Issue Item">
+    <EditForm Model="frmModel" OnValidSubmit="AddEdit">
+        <div class="form-row align-items-center">
+            <div class="form-group col-md-5">
+                <label class="control-label">Item's Name</label>
+                <BlazoredTypeahead SearchMethod="SearchAsync"
+                                   @bind-Value="_productSelection"
+                                   MinimumLength="2"
+                                   EnableDropDown="false"
+                                   placeholder="Search by item's name..." class="form-control">
+                    <SelectedTemplate Context="item">
+                        @(string.Format("{0}    --- ({1})", item.Name,frmModel.AvQty))
+                    </SelectedTemplate>
+                    <HelpTemplate>
+                        Please enter at least 2 character to perform a search.
+                    </HelpTemplate>
+                    <ResultTemplate Context="item">
+                        @item.Name
+                    </ResultTemplate>
+                </BlazoredTypeahead>
+            </div>
+            <div class="form-group col-md-1">
+                <label for="Qty" class="form-label">Quantity</label>
+                <InputNumber @bind-Value="frmModel.Qty" class="form-control" />
+            </div>
+            <div class="form-group col-md-2">
+                <label class="form-label">Recieve Date</label>
+                <InputDate @bind-Value="frmModel.IssueDate" class="form-control" />
+            </div>
+            <div class="form-group col-md-2">
+                <label class="form-label">Remarks</label>
+                <InputText @bind-Value="frmModel.Remarks" class="form-control" />
+            </div>
+            @if (frmModel.Qty != 0)
+            {
+                <div class="col-md-2">
+                    <div class="form-group mt-0 mb-0">
+                        <a class="btn btn-outline-warning pt-1 pb-1 mt-0 mb-1"
+                           @onclick="@(() => frmModel = new IssueViewModel())">
+                            <span class="oi oi-delete mr-4 ml-4"></span>Reset
+                        </a>
+                        <AddEditButtonComponent ItemGuiId="frmModel.Id" />
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="col-md-2 mt-3">
+                    <AddEditButtonComponent ItemGuiId="frmModel.Id" />
+                </div>
+            }
+            <div class="col-12">
+                <ValidationSummary />
+            </div>
+        </div>
+    </EditForm>
+</CardComponent>
+
+@if (LoadList)
+{
+    <IssueList IsVisible="false" PageSize="10" EditItem="EditItemHandler" />
+}
+
+
+@code {
+    public IList<Recieve> recieves;
+    public IList<Product> products;
+    public IssueViewModel frmModel;
+    [Inject] private AppDbContext AppContext { get; set; }
+    [Inject] private AlertService AlertInfo { get; set; }
+    [Inject] private RecieveIssuePageRefreshService RecieveIssue { get; set; }
+    [Inject] private IssueListPageRefreshService IssueListRefreshService { get; set; }
+    [Inject] private NavigationManager PageNavigation { get; set; }
+    public bool LoadList { get; set; } = false;
+
+    [Parameter] public Guid Id { get; set; }
+
+
+    Product _productSelection
+    {
+        get => frmModel.SelectedProduct;
+        set
+        {
+
+            frmModel.SelectedProduct = value;
+            ChangeHandler(value);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        frmModel = new IssueViewModel();
+
+        await FetchedProduct();
+
+        RecieveIssue.OnRefreshRequested += PageReload;
+
+        if (Id != Guid.Empty)
+        {
+            await EditItemHandler(Id);
+        }
+
+    }
+
+    private async void PageReload()
+    {
+        await InvokeAsync(async () =>
+        {
+            await FetchedProduct(); //update search text box from productadd page
+            StateHasChanged();
+        });
+    }
+
+    private void ChangeHandler(Product product)
+    {
+        if (product == null)
+        {
+            frmModel = new IssueViewModel();
+            PageReload();
+            return;
+        }
+
+        var stockProduct = AppContext.StockProducts.AsNoTracking().FirstOrDefault(x => x.Id == product.Id);
+
+        if (stockProduct == null)
+        {
+            //PageReload();
+            StateHasChanged();
+            AlertInfo.AddMessage(new Alert("Item not found in stock!", AlertType.Warning), 5);
+            return;
+        }
+
+        frmModel.AvQty = stockProduct.InStock;
+        this.frmModel.SelectedProduct = product;
+
+        //StateHasChanged();
+        if (frmModel.AvQty == 0)
+        {
+            AlertInfo.AddMessage(new Alert("Item not available in stock!", AlertType.Warning), 5);
+            return;
+        }
+
+    }
+
+    public async Task AddEdit()
+    {
+        var ip = new Issue();
+
+        if (frmModel.Id == Guid.Empty)
+        {
+            ip.ProductId = frmModel.SelectedProduct.Id;
+            ip.IssueDate = frmModel.IssueDate;
+            ip.Qty = frmModel.Qty;
+            ip.Remarks = frmModel.Remarks;
+            ip.IssuedBy = "Vinod";
+
+            await IssuedInSlice(ip.Qty);
+
+            AppContext.IssueProducts.Add(ip);
+
+            await AppContext.SaveChangesAsync();
+
+            AlertInfo.AddMessage(new Alert(frmModel.SelectedProduct.Name + " is inserted!", AlertType.Info), 5);
+
+            AppContext.Entry(ip).State = EntityState.Detached;
+
+            await ManageStock.UpdateStock(ip.ProductId, AppContext);
+
+            frmModel = new IssueViewModel();
+
+            IssueListRefreshService.CallRefreshPage(); //Refresh RecieveListPage
+        }
+        else
+        {
+            ip = AppContext.IssueProducts
+                   .AsNoTracking()
+                   .Where(x => x.ProductId == frmModel.SelectedProduct.Id)
+                   .FirstOrDefault();
+
+            ip.Qty = frmModel.Qty;
+            ip.IssueDate = frmModel.IssueDate;
+            ip.Remarks = frmModel.Remarks;
+            ip.IssuedBy = "User Name";
+
+            await IssuedInSlice(ip.Qty);
+
+            AppContext.IssueProducts.Update(ip);
+            await AppContext.SaveChangesAsync();
+
+            AlertInfo.AddMessage(new Alert(frmModel.SelectedProduct.Name + " is updated !", AlertType.Info), 5);
+
+            AppContext.Entry(ip).State = EntityState.Detached;
+
+            await ManageStock.UpdateStock(ip.ProductId, AppContext);
+
+            frmModel = new IssueViewModel();
+
+            IssueListRefreshService.CallRefreshPage();
+        }
+    }
+
+    private async Task FetchedProduct()
+    {
+        products = await Task.Run(() => AppContext.Products.AsNoTracking()
+                               .OrderBy(x => x.Name)
+                               .ToListAsync());
+
+        LoadList = true;
+    }
+
+
+    public async Task<IEnumerable<Product>> SearchAsync(string searchText)
+    {
+        return await Task.FromResult(products.Where(p => p.Name
+                                             .Contains(searchText
+                                             .ToUpper())));
+    }
+
+    //Edit Recieve List
+    public async Task EditItemHandler(Guid id)
+    {
+        if (id == Guid.Empty)
+        {
+            AlertInfo.AddMessage(new Alert("Your not selected any item !", AlertType.Error), 5);
+            return;
+        }
+
+        frmModel = await AppContext.IssueProducts.AsNoTracking().Where(x => x.Id == id && x.IsDeleted != true)
+                          .Select(x => new IssueViewModel
+                          {
+                              Id = x.Id,
+                              SelectedProduct = x.Product,
+                              Qty = x.Qty,
+                              IssueDate = x.IssueDate,
+                              Remarks = x.Remarks,
+                              PId = x.ProductId
+                          }).FirstAsync();
+
+        if (frmModel == null)
+        {
+            AlertInfo.AddMessage(new Alert("Itme not found !", AlertType.Error), 5);
+            return;
+        }
+        PageNavigation.NavigateTo("/issues", false); //only for the visible url management after the form set
+    }
+
+    //FIFO Operation on item issued
+    private async Task IssuedInSlice(int issued)
+    {
+        int qty = issued;
+        List<Recieve> recieves = new List<Recieve>();
+
+        var earlyExpiryRecieveItems = await AppContext.RecieveProducts
+                              .Where(x => x.IsDeleted == false && x.IsUsed == false)
+                              .OrderBy(x => x.ExpDate)
+                              .ToListAsync();
+
+        foreach (var rItem in earlyExpiryRecieveItems)
+        {
+            if (qty == 0)
+            {
+                break;
+            }
+
+            int availableQty = rItem.Qty - rItem.UpdatedQty;
+
+            if (qty >= availableQty)
+            {
+                rItem.UpdatedQty = 0;
+                rItem.IsUsed = true;
+
+                qty -= availableQty;
+            }
+            else
+            {
+                rItem.UpdatedQty = qty;
+                qty = 0;
+            }
+
+            recieves.Add(rItem);
+        }
+
+        AppContext.RecieveProducts.UpdateRange(recieves);
+        await AppContext.SaveChangesAsync();
+    }
+
+    public void Dispose()
+    {
+        RecieveIssue.OnRefreshRequested -= PageReload;
+    }
+}

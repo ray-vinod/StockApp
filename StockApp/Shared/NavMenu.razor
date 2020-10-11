@@ -1,0 +1,136 @@
+﻿
+<div class="top-row pl-4 navbar navbar-dark">
+    <a class="navbar-brand text-light" style="cursor:pointer;" @onclick="@(()=>PageNavigation.NavigateTo("/",true))">StockApp</a>
+    <button class="navbar-toggler" @onclick="ToggleNavMenu">
+        <span class="navbar-toggler-icon"></span>
+    </button>
+</div>
+
+<div class="@NavMenuCssClass" @onclick="ToggleNavMenu">
+    <ul class="nav flex-column">
+        <li class="nav-item px-3">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="oi oi-home" aria-hidden="true"></span> Home
+            </NavLink>
+        </li>
+        <li class="nav-item px-3">
+            <NavLink class="nav-link" href="suffix">
+                <span class="oi oi-plus" aria-hidden="true"></span>Suffix
+            </NavLink>
+        </li>
+        <li class="nav-item px-3">
+            <NavLink class="nav-link" href="prefix">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Prefix
+            </NavLink>
+        </li>
+        <li class="nav-item px-3">
+            <NavLink class="nav-link" @onclick="@(() => SubMenuToggleNavMenu("product"))">
+                <span class="oi oi-basket" aria-hidden="true"></span> Product
+            </NavLink>
+            @if (subMenu.First(x => x.Name == "product").Status)
+            {
+                <ul class=" nav flex-column">
+                    <li class="nav-item px-3">
+                        <NavLink class="nav-link" href="product">
+                            <span class="oi oi-plus" aria-hidden="true"></span> New Product
+                        </NavLink>
+                    </li>
+                    <li class="nav-item px-3">
+                        <NavLink class="nav-link" href="productlist">
+                            <span class="oi oi-list" aria-hidden="true"></span> Product List
+                        </NavLink>
+                    </li>
+                </ul>
+            }
+        </li>
+        <li class="nav-item px-3">
+            <NavLink class="nav-link" @onclick="@(() => SubMenuToggleNavMenu("recieve"))">
+                <span class="oi oi-basket" aria-hidden="true"></span> Recieve Product
+            </NavLink>
+            @if (subMenu.First(x => x.Name == "recieve").Status)
+            {
+                <ul class=" nav flex-column">
+                    <li class="nav-item px-3">
+                        <NavLink class="nav-link" href="recieve">
+                            <span class="oi oi-plus" aria-hidden="true"></span> Recieve
+                        </NavLink>
+                    </li>
+                    <li class="nav-item px-3">
+                        <NavLink class="nav-link" href="recievelist">
+                            <span class="oi oi-list" aria-hidden="true"></span> Recieve List
+                        </NavLink>
+                    </li>
+                </ul>
+            }
+        </li>
+        <li class="nav-item px-3">
+            <NavLink class="nav-link" @onclick="@(() => SubMenuToggleNavMenu("issue"))">
+                <span class="oi oi-basket" aria-hidden="true"></span> Issue Product
+            </NavLink>
+            @if (subMenu.First(x => x.Name == "issue").Status)
+            {
+                <ul class=" nav flex-column">
+                    <li class="nav-item px-3">
+                        <NavLink class="nav-link" href="issues">
+                            <span class="oi oi-plus" aria-hidden="true"></span> Issue
+                        </NavLink>
+                    </li>
+                    <li class="nav-item px-3">
+                        <NavLink class="nav-link" href="issuelist">
+                            <span class="oi oi-list" aria-hidden="true"></span> Issue List
+                        </NavLink>
+                    </li>
+                </ul>
+            }
+        </li>
+    </ul>
+</div>
+
+
+@code{
+    private bool collapseNavMenu = true;
+    private List<MyMenu> subMenu;
+    [Inject] NavigationManager PageNavigation { get; set; }
+    private string NavMenuCssClass => collapseNavMenu ? "collapse" : null;
+
+    public void ToggleNavMenu()
+    {
+        collapseNavMenu = !collapseNavMenu;
+    }
+
+
+    protected override void OnInitialized()
+    {
+        subMenu = new List<MyMenu>();
+        subMenu.Add(new MyMenu { Name = "product" });
+        subMenu.Add(new MyMenu { Name = "recieve" });
+        subMenu.Add(new MyMenu { Name = "issue" });
+        subMenu.Add(new MyMenu { Name = "stock" });
+        subMenu.Add(new MyMenu { Name = "report" });
+        subMenu.Add(new MyMenu { Name = "dashboard" });
+
+    }
+
+    private void SubMenuToggleNavMenu(string menuName)
+    {
+        foreach (var menu in subMenu)
+        {
+            //menu.Status = false;
+            if (menu.Name == menuName)
+            {
+                menu.Status = !menu.Status;
+            }
+            else
+            {
+                menu.Status = false;
+            }
+        }
+    }
+
+    private class MyMenu
+    {
+        public string Name { get; set; }
+        public bool Status { get; set; } = false;
+    }
+
+}

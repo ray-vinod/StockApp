@@ -1,0 +1,227 @@
+﻿@page "/recievelist"
+@implements IDisposable
+
+<CardComponent Heading="List of all Recieved Items" BgClass="@((IsVisible==false)? "lightinfo":"info")">
+    <div>
+        @if (IsVisible == false)
+        {
+            <a href="/recievelist" class="btn btn-outline-secondary">
+                <span class="oi oi-arrow-circle-left mr-2 mb-2"></span>Back To List
+            </a>
+        }
+        <div class="col-md-4 mb-2 float-md-right">
+            <SimpleSearchBox ByName="product's name" OnSearchTexChanged="OnProductSearchTexChanged" />
+        </div>
+    </div>
+    <TableComponent Items="recieveList" IsVisible="IsVisible" IsLoading="IsLoading"
+                    NavigationString="/recieve">
+        <TableHeader>
+            <th>Date</th>
+            <th>Item</th>
+            <th>Qty</th>
+            <th>Exp Date</th>
+            <th>Life span </th>
+            <th>Action</th>
+        </TableHeader>
+        <RowTemplate>
+            @foreach (var recieve in recieveList)
+            {
+                <tr style="color:@((recieve.DayToExp <= 0 && recieve.Qty !=0) ? "red" :
+                                   (recieve.DayToExp <=NumberOfDays && recieve.Qty !=0)? "orange":"");">
+                    <td>@recieve.RecieveDate.ToShortDateString()</td>
+                    <td>@recieve.ProductName</td>
+                    <td>@recieve.Qty</td>
+                    <td>@recieve.ExpDate.Date.ToShortDateString()</td>
+                    <td>@recieve.DayToExp</td>
+                    <td>
+                        @if (IsVisible != true)
+                        {
+                            <a @onclick="@(()=> EditItem.InvokeAsync(recieve.Id))" style="cursor:pointer;">Edit</a>
+                        }
+                        else
+                        {
+                            <a href="/recieve/@recieve.Id" style="cursor:pointer;text-decoration:none;color:black;">Edit</a>
+                        }
+                        |
+                        <a @onclick="@(()=> Delete(recieve.Id))" style="cursor:pointer;">Delete</a>
+                    </td>
+                </tr>
+            }
+        </RowTemplate>
+    </TableComponent>
+    <PaginationComponent TotalPage="TotalPages" CurrentPage="CurrentPage"
+                         Radius="2" SelectedPage="SelectedPage"></PaginationComponent>
+</CardComponent>
+
+@code{
+
+    public List<RecieveViewModel> recieveList;
+
+    [Inject] private AppDbContext AppContext { get; set; }
+    [Inject] private AlertService AlertInfo { get; set; }
+    [Inject] private RecieveListPageRefreshService RecieveListRefresh { get; set; }
+
+    private int NumberOfDays { get; set; } = 5;
+    public int PageNumber { get; set; } = 1;
+    public int CurrentPage { get; set; } = 1;
+    public int TotalPages { get; set; }
+    [Parameter] public int PageSize { get; set; } = 15;
+
+    [Parameter] public bool IsVisible { get; set; } = true;
+    [Parameter] public EventCallback<Guid> EditItem { get; set; }
+    public bool IsLoading { get; set; } = true;
+
+
+    protected override void OnInitialized()
+    {
+        recieveList = new List<RecieveViewModel>();
+        RecieveListRefresh.OnRefreshRequested += PageReload;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Load(PageNumber);
+            StateHasChanged();
+        }
+    }
+
+
+    private async void PageReload()
+    {
+        await InvokeAsync(async () =>
+        {
+            await Load(CurrentPage);
+            StateHasChanged();
+        });
+    }
+
+    public async Task SelectedPage(int page)
+    {
+        CurrentPage = page;
+        await Load(page);
+    }
+
+    public async Task OnProductSearchTexChanged(ChangeEventArgs e)
+    {
+        string searchText = e.Value.ToString().ToUpper();
+
+        var model = await Task.Run(() => from rp in AppContext.RecieveProducts
+                                          .AsNoTracking()
+                                         .Where(x => x.IsDeleted != true && x.Product.Name.Contains(searchText))
+                                         .Include(x => x.Product)
+                                         .AsNoTracking()
+                                         .OrderBy(x => x.RecieveDate)
+                                         .ThenBy(x => x.Product.Name)
+                                         select new RecieveViewModel
+                                         {
+                                             Id = rp.Id,
+                                             ProductName = ((rp.Product.ProductPrefix.Name != "NO") ? rp.Product.ProductPrefix.Name : "")
+                                                             + " " + rp.Product.Name,
+                                             Group = rp.Product.Group,
+                                             MfgDate = rp.MfgDate,
+                                             ExpDate = rp.ExpDate,
+                                             RecieveDate = rp.RecieveDate,
+                                             DayToExp = rp.ExpDate.Date.Subtract(DateTime.Now.Date).Days,
+                                             RecievedBy = rp.RecievedBy,
+                                             Qty = rp.Qty,
+
+                                         });
+
+        recieveList = await PaginatedList<RecieveViewModel>.CreateAsync(model, PageNumber, PageSize);
+        TotalPages = PaginatedList<RecieveViewModel>.TotalPage();
+
+        if (recieveList.Count == 0 && CurrentPage != 1)
+        {
+            CurrentPage -= 1;
+            RecieveListRefresh.CallRefreshPage();
+        }
+
+    }
+
+    public async Task Load(int page, int delayTime = 1000)
+    {
+        if (IsLoading)
+        {
+            await Task.Delay(delayTime);
+            IsLoading = false;
+        }
+
+        var task = Task.Run(() => from rp in AppContext.RecieveProducts
+                                         .AsNoTracking()
+                                         .Where(x => x.IsDeleted != true)
+                                         .Include(x => x.Product)
+                                         .AsNoTracking()
+                                         .OrderBy(x => x.RecieveDate)
+                                         .ThenBy(x => x.Product.Name)
+                                  select new RecieveViewModel
+                                  {
+                                      Id = rp.Id,
+                                      ProductName = ((rp.Product.ProductPrefix.Name != "NO") ? rp.Product.ProductPrefix.Name : "")
+                                                      + " " + rp.Product.Name,
+                                      Group = rp.Product.Group,
+                                      MfgDate = rp.MfgDate,
+                                      ExpDate = rp.ExpDate,
+                                      RecieveDate = rp.RecieveDate,
+                                      DayToExp = rp.ExpDate.Date.Subtract(DateTime.Now.Date).Days,
+                                      RecievedBy = rp.RecievedBy,
+                                      Qty = rp.Qty,
+
+                                  });
+
+        Task.WaitAll(task);
+        var awaiter = task.GetAwaiter();
+        var result = awaiter.GetResult();
+
+
+        recieveList = await PaginatedList<RecieveViewModel>.CreateAsync(result, page, PageSize);
+        TotalPages = PaginatedList<RecieveViewModel>.TotalPage();
+
+
+        if (recieveList.Count == 0 && CurrentPage != 1)
+        {
+            CurrentPage -= 1;
+            RecieveListRefresh.CallRefreshPage();
+
+        }
+
+    }
+
+    public async Task Delete(Guid id)
+    {
+        if (id == Guid.Empty)
+        {
+            AlertInfo.AddMessage(new Alert("Your are not selected any item !", AlertType.Error), 5);
+            return;
+        }
+
+        var model = await Task.Run(() => AppContext.RecieveProducts
+                              .AsNoTracking()
+                              .FirstAsync(x => x.Id == id && x.IsDeleted != true));
+
+        if (model == null)
+        {
+            AlertInfo.AddMessage(new Alert("Record not found !", AlertType.Error), 5);
+            return;
+        }
+
+        //Db.RecieveProduct.Remove(model);//Parmanent Deletion form db
+        model.IsDeleted = true;
+        AppContext.RecieveProducts.Update(model);
+        await AppContext.SaveChangesAsync();
+
+        AlertInfo.AddMessage(new Alert(model.Product.Name + "Item is deleted !", AlertType.Info), 5);
+        //AlertInfo.AddMessage(new Alert("Item is deleted !", AlertType.Info), 5);
+
+        AppContext.Entry(model).State = EntityState.Detached;
+        await ManageStock.UpdateStock(model.ProductId, AppContext);
+        RecieveListRefresh.CallRefreshPage();
+
+    }
+
+    public void Dispose()
+    {
+        RecieveListRefresh.OnRefreshRequested -= PageReload;
+    }
+}

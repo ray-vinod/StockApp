@@ -1,0 +1,166 @@
+﻿@page "/prefixlist"
+@implements IDisposable
+
+<CardComponent Heading="List of Product Prefix" BgClass="@((IsVisible==false)? "lightinfo":"info")">
+    <div>
+        <div class="col-md-5 mb-2 float-md-right">
+            <SimpleSearchBox ByName="prefix's name" OnSearchTexChanged="OnSearchTexChanged" />
+        </div>
+
+        @if (IsVisible == false)
+        {
+            <a href="/prefixlist" class="btn btn-outline-secondary">
+                <span class="oi oi-arrow-circle-left mr-2 mb-2"></span>Back To List
+            </a>
+        }
+    </div>
+    <TableComponent Items="productPrefixes" IsLoading="IsLoading" IsVisible="IsVisible"
+                    NavigationString="/prefix">
+
+        <TableHeader>
+            <th width="70%">Name</th>
+            <th width="30%">Action</th>
+        </TableHeader>
+
+        <RowTemplate>
+            @foreach (var prefix in productPrefixes)
+            {
+                <tr>
+                    <td>@prefix.Name</td>
+                    <td>
+                        @if (IsVisible != true)
+                        {
+                            <a @onclick="@(()=> EditItem.InvokeAsync(prefix.Id))" style="cursor:pointer;">Edit</a>
+                        }
+                        else
+                        {
+                            <a href="/prefix/@prefix.Id" style="cursor:pointer;text-decoration:none;color:black;">Edit</a>
+                        }
+                        |
+                        <a @onclick="@(()=> Delete(prefix.Id))" style="cursor:pointer;">Delete</a>
+                    </td>
+                </tr>
+            }
+        </RowTemplate>
+    </TableComponent>
+    <PaginationComponent TotalPage="TotalPages" CurrentPage="CurrentPage"
+                         Radius="3" SelectedPage="SelectedPage">
+    </PaginationComponent>
+</CardComponent>
+
+@code{
+
+    [Inject] AppDbContext AppContext { get; set; }
+    [Inject] AlertService AlertInfo { get; set; }
+    [Inject] PageRefreshService PageRefresh { get; set; }
+
+    //Paginating Members
+    public int PageNumber { get; set; } = 1;
+    public int CurrentPage { get; set; } = 1;
+    public int TotalPages { get; set; }
+
+    //Parameter members
+    [Parameter] public bool IsVisible { get; set; } = true;
+    [Parameter] public int PageSize { get; set; } = 15;
+    [Parameter] public EventCallback<int> EditItem { get; set; }
+
+    public List<ProductPrefix> productPrefixes;
+    public bool IsLoading { get; set; } = true;
+
+    protected override void OnInitialized()
+    {
+        productPrefixes = new List<ProductPrefix>();
+        PageRefresh.OnRefreshRequested += PageReload;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Load(PageNumber);
+            StateHasChanged();
+        }
+    }
+
+    //Page Refresh
+    private async void PageReload()
+    {
+        await Load(CurrentPage);
+        await InvokeAsync(() =>
+        {
+            StateHasChanged();
+        });
+    }
+
+    //Fetch all records
+    private async Task Load(int page)
+    {
+        //Spin Loader Enable
+        if (IsLoading)
+        {
+            await Task.Delay(200);
+            IsLoading = false;
+        }
+
+        var model = await Task.Run(() =>
+                                        from pf in AppContext.ProductsPrefix
+                                            .OrderBy(x => x.Name)
+                                        select pf);
+        productPrefixes = await PaginatedList<ProductPrefix>.CreateAsync(model, page, PageSize);
+        TotalPages = PaginatedList<ProductPrefix>.TotalPage();
+
+        if (productPrefixes.Count == 0 && CurrentPage != 1)
+        {
+            CurrentPage -= 1;
+            PageRefresh.CallRefreshPage();
+        }
+    }
+
+    //EventCallback for paging navigation link
+    public async Task SelectedPage(int page)
+    {
+        CurrentPage = page;
+        await Load(page);
+    }
+
+    //Search Function
+    public async Task OnSearchTexChanged(ChangeEventArgs e)
+    {
+        string searchText = e.Value.ToString();
+        var model = from p in AppContext.ProductsPrefix
+                    .Where(x => x.Name.Contains(searchText.ToUpper()))
+                    .OrderBy(x => x.Name)
+                    select p;
+
+        productPrefixes = await PaginatedList<ProductPrefix>.CreateAsync(model, PageNumber, PageSize);
+        TotalPages = PaginatedList<ProductPrefix>.TotalPage();
+    }
+
+    //Delete prefix item
+    public async Task Delete(int id)
+    {
+        if (id == 0)
+        {
+            AlertInfo.AddMessage(new Alert("Your are not selected any item !", AlertType.Error), 5);
+            return;
+        }
+
+        var prefix = await Task.Run(() => AppContext.ProductsPrefix.First(x => x.Id == id));
+        if (prefix == null)
+        {
+            AlertInfo.AddMessage(new Alert("Record not found !", AlertType.Error), 5);
+            return;
+        }
+
+        AppContext.ProductsPrefix.Remove(prefix);
+        await AppContext.SaveChangesAsync();
+
+        PageRefresh.CallRefreshPage();
+        AlertInfo.AddMessage(new Alert("Item is deleted !", AlertType.Info), 5);
+    }
+
+    public void Dispose()
+    {
+        PageRefresh.OnRefreshRequested -= PageReload;
+    }
+}

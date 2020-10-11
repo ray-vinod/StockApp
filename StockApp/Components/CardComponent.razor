@@ -1,0 +1,23 @@
+﻿<div class="col-md-12">
+    <div class="card text-white bg-@BgClass mb-1" style="width: auto; align-content: stretch;">
+        <div class="card-header p-0">
+            <h3>@Heading</h3>
+        </div>
+        <div class="card-body bg-white text-dark mb-0">
+            @ChildContent
+        </div>
+    </div>
+</div>
+
+@code{
+    [Parameter]
+    public string Heading { get; set; }
+
+    [Parameter]
+    public RenderFragment ChildContent { get; set; }
+
+    [Parameter]
+    public string BgClass { get; set; } = "info";
+
+}
+
